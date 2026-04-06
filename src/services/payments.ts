@@ -6,9 +6,7 @@ export type InitiatePaymentRequest = {
 };
 
 export type InitiatePaymentResponse = {
-  success?: boolean;
-  paymentUrl?: string;
-  message?: string;
+  paymentUrl: string;
 };
 
 export type PaymentWebhookPayload = {
@@ -25,6 +23,11 @@ export type PaymentWebhookPayload = {
 
 export type SendWebhookOptions = {
   useInvalidApiKey?: boolean;
+};
+
+export type CancelPaymentResponse = {
+  transactionId: string;
+  status: "CANCELLED";
 };
 
 export class ApiError extends Error {
@@ -60,27 +63,65 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
   }
 }
 
+function bearerHeaders(token: string): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 export async function initiatePayment(
   body: InitiatePaymentRequest,
+  token: string,
 ): Promise<InitiatePaymentResponse> {
   const response = await fetch(`${getBackendUrl()}/v1/payments/initiate`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: bearerHeaders(token),
     body: JSON.stringify(body),
   });
 
-  const data = (await parseJsonResponse(response)) as InitiatePaymentResponse;
-  if (!response.ok) {
+  const data = (await parseJsonResponse(response)) as
+    | InitiatePaymentResponse
+    | { data?: InitiatePaymentResponse; message?: string };
+
+  const normalized = "paymentUrl" in data ? data : data?.data;
+
+  if (!response.ok || !normalized?.paymentUrl) {
     const message =
-      typeof data?.message === "string"
-        ? data.message
+      typeof (data as { message?: string })?.message === "string"
+        ? (data as { message?: string }).message!
         : `Initiate failed with status ${response.status}`;
     throw new ApiError(message, response.status, data);
   }
 
-  return data;
+  return normalized;
+}
+
+export async function cancelPayment(
+  token: string,
+  transactionId?: string,
+): Promise<CancelPaymentResponse> {
+  const response = await fetch(`${getBackendUrl()}/v1/payments/cancel`, {
+    method: "POST",
+    headers: bearerHeaders(token),
+    body: JSON.stringify(transactionId ? { transactionId } : {}),
+  });
+
+  const data = (await parseJsonResponse(response)) as
+    | CancelPaymentResponse
+    | { data?: CancelPaymentResponse; message?: string };
+
+  const normalized = "status" in data ? data : data?.data;
+
+  if (!response.ok || !normalized?.transactionId) {
+    const message =
+      typeof (data as { message?: string })?.message === "string"
+        ? (data as { message?: string }).message!
+        : `Cancel failed with status ${response.status}`;
+    throw new ApiError(message, response.status, data);
+  }
+
+  return normalized;
 }
 
 export async function sendPaymentWebhook(
