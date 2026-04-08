@@ -66,18 +66,18 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
   }
 }
 
-function bearerHeaders(token: string): HeadersInit {
+function bearerHeaders(token?: string | null): HeadersInit {
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
 
 export async function initiatePayment(
   body: InitiatePaymentRequest,
-  token: string,
+  token?: string | null,
 ): Promise<InitiatePaymentResponse> {
-  const response = await fetch(`${getBackendUrl()}/v1/payments/initiate`, {
+  const response = await fetch("/api/payments/initiate", {
     method: "POST",
     headers: bearerHeaders(token),
     body: JSON.stringify(body),

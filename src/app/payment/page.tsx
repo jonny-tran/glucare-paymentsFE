@@ -2,11 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  initiatePayment,
-  sendPaymentWebhook,
-  type PackageCode,
-} from "@/services/payments";
+import { sendPaymentWebhook, type PackageCode } from "@/services/payments";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,33 +15,18 @@ const PACKAGE_INFO: Record<PackageCode, { label: string; amount: number; duratio
   L: { label: "Goi Tron doi", amount: 1000000, duration: "Vinh vien" },
 };
 
-type Step = "SELECT_PACKAGE" | "BANK_INPUT" | "SUCCESS";
+type Step = "BANK_INPUT" | "SUCCESS";
 
-function generateUuid(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
-    const random = Math.floor(Math.random() * 16);
-    const value = char === "x" ? random : (random & 0x3) | 0x8;
-    return value.toString(16);
-  });
-}
-
-function formatDateTime(date: Date): string {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  const hours = `${date.getHours()}`.padStart(2, "0");
-  const minutes = `${date.getMinutes()}`.padStart(2, "0");
-  const seconds = `${date.getSeconds()}`.padStart(2, "0");
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+function parsePackageCode(value: string | null): PackageCode | null {
+  if (value === "M" || value === "Y" || value === "L") return value;
+  return null;
 }
 
 export default function PaymentPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<PackageCode | null>(null);
   const [transactionId, setTransactionId] = useState<string | null>(null);
-  const [authToken, setAuthToken] = useState<string | null>(null);
-  const [step, setStep] = useState<Step>("SELECT_PACKAGE");
+  const [step, setStep] = useState<Step>("BANK_INPUT");
   const [errorText, setErrorText] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -56,26 +37,20 @@ export default function PaymentPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setUserId(params.get("userId"));
-  }, []);
-
-  useEffect(() => {
-    const token =
-      window.localStorage.getItem("accessToken") ??
-      window.localStorage.getItem("token") ??
-      window.sessionStorage.getItem("accessToken") ??
-      window.sessionStorage.getItem("token");
-    setAuthToken(token);
+    setSelectedPackage(parsePackageCode(params.get("package")));
+    setTransactionId(params.get("transactionId"));
   }, []);
 
   const missingQueryError = useMemo(() => {
-    if (!userId) return "Thieu query param userId.";
+    if (!userId || !selectedPackage || !transactionId) {
+      return "Thong tin thanh toan khong hop le.";
+    }
     return "";
-  }, [userId]);
+  }, [selectedPackage, transactionId, userId]);
 
   const handleConfirmPayment = async () => {
     if (!userId) return setErrorText("Khong tim thay userId.");
-    if (!selectedPackage) return setErrorText("Vui long chon goi dich vu.");
-    if (!authToken) return setErrorText("Ban chua dang nhap hoac token da het han.");
+    if (!selectedPackage || !transactionId) return setErrorText("Thong tin thanh toan khong hop le.");
     if (!bankName.trim() || !accountNumber.trim() || !accountHolder.trim()) {
       return setErrorText("Vui long nhap day du thong tin ngan hang.");
     }
@@ -84,29 +59,17 @@ export default function PaymentPage() {
     setErrorText("");
 
     try {
-      const initResult = await initiatePayment(
-        {
-          userId,
-          packageType: selectedPackage,
-        },
-        authToken,
-      );
-
-      const resolvedTx = initResult.transactionId ?? `GLU-${Date.now()}`;
-      setTransactionId(resolvedTx);
-      window.sessionStorage.setItem("payment_transaction_id", resolvedTx);
-
       const amount = PACKAGE_INFO[selectedPackage].amount;
       const webhookResult = await sendPaymentWebhook({
-        id: generateUuid(),
-        gateway: bankName.trim(),
-        transactionDate: formatDateTime(new Date()),
-        accountNumber: accountNumber.trim(),
+        id: transactionId,
+        gateway: "Vietcombank",
+        transactionDate: "2026-04-06 10:00:00",
+        accountNumber: "0123456789",
         content: `GLUCARE ${userId} ${selectedPackage}`,
         transferType: "in",
         transferAmount: amount,
-        accumulated: 19000000 + amount,
-        referenceCode: resolvedTx,
+        accumulated: 0,
+        referenceCode: `MOCK_REF_${Date.now()}`,
       });
 
       if (webhookResult.status < 200 || webhookResult.status >= 300) {
@@ -139,7 +102,7 @@ export default function PaymentPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
             Thanh toan goi GlucoDia
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manual Bank Entry + Mock SePay Webhook</p>
+          <p className="mt-1 text-sm text-muted-foreground">Payment terminal: chi goi /v1/payments/webhook</p>
         </motion.header>
 
         {missingQueryError ? (
@@ -156,44 +119,6 @@ export default function PaymentPage() {
         ) : null}
 
         <AnimatePresence mode="wait">
-          {step === "SELECT_PACKAGE" ? (
-            <motion.section
-              key="select-package"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-              className="grid gap-4 md:grid-cols-3"
-            >
-              {(["M", "Y", "L"] as PackageCode[]).map((code) => (
-                <Card
-                  key={code}
-                  className="rounded-2xl border-white/60 bg-white/85 shadow-xl shadow-indigo-200/20 backdrop-blur-md"
-                >
-                  <CardHeader>
-                    <CardTitle>{PACKAGE_INFO[code].label}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <p className="text-2xl font-semibold text-indigo-700">
-                      {PACKAGE_INFO[code].amount.toLocaleString("vi-VN")} VND
-                    </p>
-                    <p className="text-sm text-muted-foreground">Thoi han: {PACKAGE_INFO[code].duration}</p>
-                    <Button
-                      className="w-full bg-gradient-to-r from-sky-600 to-indigo-600"
-                      onClick={() => {
-                        setSelectedPackage(code);
-                        setErrorText("");
-                        setStep("BANK_INPUT");
-                      }}
-                    >
-                      Chon goi {code}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </motion.section>
-          ) : null}
-
           {step === "BANK_INPUT" ? (
             <motion.div
               key="bank-input"
@@ -204,12 +129,7 @@ export default function PaymentPage() {
             >
               <Card className="mx-auto w-full max-w-2xl rounded-2xl border-white/60 bg-white/90 shadow-xl shadow-sky-200/30 backdrop-blur-md">
                 <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <span>Nhap thong tin ngan hang</span>
-                    <Button variant="outline" onClick={() => setStep("SELECT_PACKAGE")}>
-                      Doi goi
-                    </Button>
-                  </CardTitle>
+                  <CardTitle>Nhap thong tin ngan hang</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="rounded-xl border border-sky-100 bg-gradient-to-r from-sky-50 to-indigo-50 px-3 py-2 text-sm">
@@ -254,7 +174,7 @@ export default function PaymentPage() {
                   <Button
                     className="w-full bg-gradient-to-r from-sky-600 to-indigo-600"
                     size="lg"
-                    disabled={loading}
+                    disabled={loading || Boolean(missingQueryError)}
                     onClick={handleConfirmPayment}
                   >
                     {loading ? (
