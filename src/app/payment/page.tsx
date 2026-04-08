@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   cancelPayment,
-  sendPaymentWebhook,
   submitPayment,
   type PackageType,
 } from "@/services/payments";
@@ -20,27 +19,6 @@ const PACKAGE_AMOUNT: Record<PackageType, number> = {
 };
 
 type Step = "form" | "success" | "failed";
-
-function generateUuid(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
-    const random = Math.floor(Math.random() * 16);
-    const value = char === "x" ? random : (random & 0x3) | 0x8;
-    return value.toString(16);
-  });
-}
-
-function formatDateTime(date: Date): string {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  const hours = `${date.getHours()}`.padStart(2, "0");
-  const minutes = `${date.getMinutes()}`.padStart(2, "0");
-  const seconds = `${date.getSeconds()}`.padStart(2, "0");
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-}
 
 function parsePackage(value: string | null): PackageType | null {
   if (value === "M" || value === "MONTHLY") return "MONTHLY";
@@ -143,10 +121,16 @@ export default function PaymentPage() {
 
   const handleConfirmPayment = async () => {
     if (!transactionId) return setErrorText(missingTransactionError);
-    if (!packageType || !resolvedPhone) return setErrorText("Khong du thong tin thanh toan.");
+    if (!packageType) return setErrorText("Khong du thong tin thanh toan.");
     if (expired) return setErrorText("Don da het han.");
     if (!bankName.trim() || !accountNumber.trim() || !accountHolder.trim()) {
       return setErrorText("Vui long nhap day du thong tin ngan hang.");
+    }
+    if (!authToken) {
+      return setErrorText("Ban chua dang nhap hoac token da het han.");
+    }
+    if (!userId) {
+      return setErrorText("Khong tim thay userId.");
     }
 
     setLoading(true);
@@ -154,39 +138,24 @@ export default function PaymentPage() {
     setFailureReason("");
 
     try {
-      if (authToken && userId) {
-        await submitPayment(
-          {
-            userId,
-            packageType,
+      const result = await submitPayment(
+        {
+          userId,
+          packageType,
+          bankInfo: {
             bankName: bankName.trim(),
             accountNumber: accountNumber.trim(),
             accountHolder: accountHolder.trim(),
           },
-          authToken,
-        );
-      }
+        },
+        authToken,
+      );
 
-      const referenceCode = `MBVCB.${Date.now()}`;
-      const result = await sendPaymentWebhook({
-        id: generateUuid(),
-        gateway: bankName.trim(),
-        transactionDate: formatDateTime(new Date()),
-        accountNumber: accountNumber.trim(),
-        content: `GLUCARE ${resolvedPhone} ${packageType} ${accountHolder.trim()}`,
-        transferType: "in",
-        transferAmount: amount,
-        accumulated: 19000000 + amount,
-        referenceCode,
-      });
-
-      if (result.status >= 200 && result.status < 300) {
-        setLastReferenceCode(referenceCode);
-        setStep("success");
-      } else {
-        setFailureReason(`Thanh toan that bai (HTTP ${result.status}).`);
-        setStep("failed");
-      }
+      const backendTransactionId = result.transactionId ?? transactionId;
+      setTransactionId(backendTransactionId);
+      window.sessionStorage.setItem("payment_transaction_id", backendTransactionId);
+      setLastReferenceCode(result.transactionId ?? null);
+      setStep("success");
     } catch (error) {
       setFailureReason(error instanceof Error ? error.message : "Thanh toan that bai.");
       setStep("failed");

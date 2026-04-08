@@ -3,34 +3,19 @@ export type PackageType = "MONTHLY" | "YEARLY" | "LIFETIME";
 export type SubmitPaymentRequest = {
   userId: string;
   packageType: PackageType;
-  bankName: string;
-  accountNumber: string;
-  accountHolder: string;
+  bankInfo: {
+    bankName: string;
+    accountNumber: string;
+    accountHolder: string;
+  };
 };
 
 export type SubmitPaymentResponse = {
   success: boolean;
-  transactionRef?: string;
-  expectedAmount?: number;
-  packageType?: PackageType;
-  status?: "PENDING" | "SUCCESS" | "FAILED";
   message?: string;
-};
-
-export type PaymentWebhookPayload = {
-  id: string;
-  gateway: string;
-  transactionDate: string;
-  accountNumber: string;
-  content: string;
-  transferType: "in";
-  transferAmount: number;
-  accumulated: number;
-  referenceCode: string;
-};
-
-export type SendWebhookOptions = {
-  useInvalidApiKey?: boolean;
+  transactionId?: string;
+  status?: "PENDING";
+  packageType?: PackageType;
 };
 
 export type CancelPaymentResponse = {
@@ -132,21 +117,3 @@ export async function cancelPayment(
   return normalized;
 }
 
-export async function sendPaymentWebhook(
-  payload: PaymentWebhookPayload,
-  options: SendWebhookOptions = {},
-): Promise<{ status: number; data: unknown }> {
-  const response = await fetch("/api/payments/mock-webhook", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.useInvalidApiKey ? { "x-force-invalid-key": "1" } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
-
-  return {
-    status: response.status,
-    data: await parseJsonResponse(response),
-  };
-}
