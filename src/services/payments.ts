@@ -26,6 +26,7 @@ export type PaymentWebhookPayload = {
 
 export type SendWebhookOptions = {
   useInvalidApiKey?: boolean;
+  apiKey?: string;
 };
 
 export type CancelPaymentResponse = {
@@ -136,6 +137,7 @@ export async function sendPaymentWebhook(
     headers: {
       "Content-Type": "application/json",
       ...(options.useInvalidApiKey ? { "x-force-invalid-key": "1" } : {}),
+      ...(options.apiKey ? { "x-api-key": options.apiKey } : {}),
     },
     body: JSON.stringify(payload),
   });

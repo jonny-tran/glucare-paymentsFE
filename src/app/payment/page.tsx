@@ -33,6 +33,7 @@ export default function PaymentPage() {
   const [bankName, setBankName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [accountHolder, setAccountHolder] = useState("");
+  const webhookApiKey = process.env.NEXT_PUBLIC_SEPAY_WEBHOOK_API_KEY ?? "";
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -54,6 +55,9 @@ export default function PaymentPage() {
     if (!bankName.trim() || !accountNumber.trim() || !accountHolder.trim()) {
       return setErrorText("Vui long nhap day du thong tin ngan hang.");
     }
+    if (!webhookApiKey) {
+      return setErrorText("Missing NEXT_PUBLIC_SEPAY_WEBHOOK_API_KEY de gui x-api-key.");
+    }
 
     setLoading(true);
     setErrorText("");
@@ -70,7 +74,7 @@ export default function PaymentPage() {
         transferAmount: amount,
         accumulated: 0,
         referenceCode: `MOCK_REF_${Date.now()}`,
-      });
+      }, { apiKey: webhookApiKey });
 
       if (webhookResult.status < 200 || webhookResult.status >= 300) {
         throw new Error(`Webhook failed (HTTP ${webhookResult.status})`);

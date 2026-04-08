@@ -12,22 +12,23 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!SEPAY_WEBHOOK_API_KEY) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Missing SEPAY_WEBHOOK_API_KEY or NEXT_PUBLIC_SEPAY_WEBHOOK_API_KEY",
-      },
-      { status: 500 },
-    );
-  }
-
   try {
     const payload = await request.json();
     const forceInvalidKey = request.headers.get("x-force-invalid-key") === "1";
+    const requestApiKey = request.headers.get("x-api-key");
     const apiKey = forceInvalidKey
       ? "invalid-key-for-401-test"
-      : SEPAY_WEBHOOK_API_KEY;
+      : (requestApiKey ?? SEPAY_WEBHOOK_API_KEY);
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Missing x-api-key (request header) or SEPAY_WEBHOOK_API_KEY (server env)",
+        },
+        { status: 500 },
+      );
+    }
 
     const upstreamResponse = await fetch(`${BACKEND_URL}/v1/payments/webhook`, {
       method: "POST",
