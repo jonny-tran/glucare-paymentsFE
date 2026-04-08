@@ -5,11 +5,11 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { PackageType } from "@/services/payments";
+import type { PackageCode } from "@/services/payments";
 import { motion } from "framer-motion";
 
 type Props = {
-  packageType: PackageType | null;
+  packageType: PackageCode | null;
   amount: number;
   loading: boolean;
   canceling: boolean;
@@ -26,10 +26,10 @@ type Props = {
   onCancel: () => void;
 };
 
-function packageLabel(packageType: PackageType | null): string {
-  if (packageType === "MONTHLY") return "Goi Thang";
-  if (packageType === "YEARLY") return "Goi Nam";
-  if (packageType === "LIFETIME") return "Goi Tron doi";
+function packageLabel(packageType: PackageCode | null): string {
+  if (packageType === "M") return "Goi Thang";
+  if (packageType === "Y") return "Goi Nam";
+  if (packageType === "L") return "Goi Tron doi";
   return "Chua xac dinh";
 }
 

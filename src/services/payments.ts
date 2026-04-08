@@ -1,21 +1,31 @@
-export type PackageType = "MONTHLY" | "YEARLY" | "LIFETIME";
+export type PackageCode = "M" | "Y" | "L";
 
-export type SubmitPaymentRequest = {
+export type InitiatePaymentRequest = {
   userId: string;
-  packageType: PackageType;
-  bankInfo: {
-    bankName: string;
-    accountNumber: string;
-    accountHolder: string;
-  };
+  packageType: PackageCode;
 };
 
-export type SubmitPaymentResponse = {
+export type InitiatePaymentResponse = {
   success: boolean;
   message?: string;
   transactionId?: string;
-  status?: "PENDING";
-  packageType?: PackageType;
+  paymentUrl?: string;
+};
+
+export type PaymentWebhookPayload = {
+  id: string;
+  gateway: string;
+  transactionDate: string;
+  accountNumber: string;
+  content: string;
+  transferType: "in";
+  transferAmount: number;
+  accumulated: number;
+  referenceCode: string;
+};
+
+export type SendWebhookOptions = {
+  useInvalidApiKey?: boolean;
 };
 
 export type CancelPaymentResponse = {
@@ -63,27 +73,27 @@ function bearerHeaders(token: string): HeadersInit {
   };
 }
 
-export async function submitPayment(
-  body: SubmitPaymentRequest,
+export async function initiatePayment(
+  body: InitiatePaymentRequest,
   token: string,
-): Promise<SubmitPaymentResponse> {
-  const response = await fetch("/api/payments/submit", {
+): Promise<InitiatePaymentResponse> {
+  const response = await fetch(`${getBackendUrl()}/v1/payments/initiate`, {
     method: "POST",
     headers: bearerHeaders(token),
     body: JSON.stringify(body),
   });
 
   const data = (await parseJsonResponse(response)) as
-    | SubmitPaymentResponse
-    | { data?: SubmitPaymentResponse; message?: string };
+    | InitiatePaymentResponse
+    | { data?: InitiatePaymentResponse; message?: string };
 
-  const normalized = "success" in data ? data : data?.data;
+  const normalized = "success" in data ? data : (data?.data ?? { success: false });
 
-  if (!response.ok || !normalized?.success) {
+  if (!response.ok || !normalized.success) {
     const message =
       typeof (data as { message?: string })?.message === "string"
         ? (data as { message?: string }).message!
-        : `Submit payment failed with status ${response.status}`;
+        : `Initiate payment failed with status ${response.status}`;
     throw new ApiError(message, response.status, data);
   }
 
@@ -115,5 +125,24 @@ export async function cancelPayment(
   }
 
   return normalized;
+}
+
+export async function sendPaymentWebhook(
+  payload: PaymentWebhookPayload,
+  options: SendWebhookOptions = {},
+): Promise<{ status: number; data: unknown }> {
+  const response = await fetch("/api/payments/mock-webhook", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.useInvalidApiKey ? { "x-force-invalid-key": "1" } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return {
+    status: response.status,
+    data: await parseJsonResponse(response),
+  };
 }
 

@@ -2,20 +2,20 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { PackageType } from "@/services/payments";
+import type { PackageCode } from "@/services/payments";
 
 type Props = {
   transactionId: string | null;
-  packageType: PackageType | null;
+  packageType: PackageCode | null;
   amount: number;
   countdownLabel: string;
   expired: boolean;
 };
 
-function packageLabel(packageType: PackageType | null): string {
-  if (packageType === "MONTHLY") return "Goi Thang";
-  if (packageType === "YEARLY") return "Goi Nam";
-  if (packageType === "LIFETIME") return "Goi Tron doi";
+function packageLabel(packageType: PackageCode | null): string {
+  if (packageType === "M") return "Goi Thang";
+  if (packageType === "Y") return "Goi Nam";
+  if (packageType === "L") return "Goi Tron doi";
   return "Khong xac dinh";
 }
 

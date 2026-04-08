@@ -1,67 +1,61 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  cancelPayment,
-  submitPayment,
-  type PackageType,
+  initiatePayment,
+  sendPaymentWebhook,
+  type PackageCode,
 } from "@/services/payments";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { OrderSummaryCard } from "@/components/payment/order-summary-card";
-import { BankTransferForm } from "@/components/payment/bank-transfer-form";
-import { PaymentResultCard } from "@/components/payment/payment-result-card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 
-const PACKAGE_AMOUNT: Record<PackageType, number> = {
-  MONTHLY: 50000,
-  YEARLY: 450000,
-  LIFETIME: 1000000,
+const PACKAGE_INFO: Record<PackageCode, { label: string; amount: number; duration: string }> = {
+  M: { label: "Goi Thang", amount: 50000, duration: "30 ngay" },
+  Y: { label: "Goi Nam", amount: 450000, duration: "365 ngay" },
+  L: { label: "Goi Tron doi", amount: 1000000, duration: "Vinh vien" },
 };
 
-type Step = "form" | "success" | "failed";
+type Step = "SELECT_PACKAGE" | "BANK_INPUT" | "SUCCESS";
 
-function parsePackage(value: string | null): PackageType | null {
-  if (value === "M" || value === "MONTHLY") return "MONTHLY";
-  if (value === "Y" || value === "YEARLY") return "YEARLY";
-  if (value === "L" || value === "LIFETIME") return "LIFETIME";
-  return null;
+function generateUuid(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+function formatDateTime(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const hours = `${date.getHours()}`.padStart(2, "0");
+  const minutes = `${date.getMinutes()}`.padStart(2, "0");
+  const seconds = `${date.getSeconds()}`.padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 export default function PaymentPage() {
   const [userId, setUserId] = useState<string | null>(null);
-  const [packageType, setPackageType] = useState<PackageType | null>(null);
-  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
+  const [selectedPackage, setSelectedPackage] = useState<PackageCode | null>(null);
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
-
-  const [step, setStep] = useState<Step>("form");
+  const [step, setStep] = useState<Step>("SELECT_PACKAGE");
   const [errorText, setErrorText] = useState("");
-  const [failureReason, setFailureReason] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const [bankName, setBankName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [accountHolder, setAccountHolder] = useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [canceling, setCanceling] = useState(false);
-  const [lastReferenceCode, setLastReferenceCode] = useState<string | null>(null);
-
-  const [secondsLeft, setSecondsLeft] = useState(5 * 60);
-  const [expired, setExpired] = useState(false);
-  const timeoutCanceledRef = useRef(false);
-
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setUserId(params.get("userId"));
-    setPackageType(parsePackage(params.get("package")));
-    setPhoneNumber(params.get("phone"));
-    const queryTx = params.get("transactionId");
-    const sessionTx = window.sessionStorage.getItem("payment_transaction_id");
-    const resolvedTx = queryTx ?? sessionTx;
-    setTransactionId(resolvedTx);
-    if (resolvedTx) {
-      window.sessionStorage.setItem("payment_transaction_id", resolvedTx);
-    }
   }, []);
 
   useEffect(() => {
@@ -73,110 +67,57 @@ export default function PaymentPage() {
     setAuthToken(token);
   }, []);
 
-  useEffect(() => {
-    if (secondsLeft <= 0) {
-      setExpired(true);
-      return;
-    }
-    const timer = window.setInterval(() => {
-      setSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [secondsLeft]);
-
-  useEffect(() => {
-    if (!expired || timeoutCanceledRef.current || !authToken || !transactionId) return;
-    timeoutCanceledRef.current = true;
-    cancelPayment(authToken, transactionId).catch(() => null);
-  }, [authToken, expired, transactionId]);
-
-  const missingTransactionError =
-    "Thiếu mã giao dịch, vui lòng khởi tạo lại thanh toán";
-
   const missingQueryError = useMemo(() => {
-    if (!userId || !packageType) {
-      return "Thieu query params: userId va package (MONTHLY | YEARLY | LIFETIME).";
-    }
+    if (!userId) return "Thieu query param userId.";
     return "";
-  }, [packageType, userId]);
-
-  const resolvedPhone = useMemo(() => {
-    if (phoneNumber) return phoneNumber;
-    const byUserId: Record<string, string> = {
-      "4d3c9bea-6683-467c-ae28-85061d86ef64": "0984444444",
-      "50b4860e-7b1e-4006-9448-f823a623ad6c": "0985555555",
-      "945add22-6c73-4902-ae52-d1b1b884c067": "0983333333",
-    };
-    return userId ? byUserId[userId] ?? null : null;
-  }, [phoneNumber, userId]);
-
-  const amount = packageType ? PACKAGE_AMOUNT[packageType] : 0;
-  const countdownLabel = `${`${Math.floor(secondsLeft / 60)}`.padStart(2, "0")}:${`${secondsLeft % 60}`.padStart(2, "0")}`;
-
-  const resetToForm = () => {
-    setStep("form");
-    setFailureReason("");
-    setErrorText("");
-  };
+  }, [userId]);
 
   const handleConfirmPayment = async () => {
-    if (!transactionId) return setErrorText(missingTransactionError);
-    if (!packageType) return setErrorText("Khong du thong tin thanh toan.");
-    if (expired) return setErrorText("Don da het han.");
+    if (!userId) return setErrorText("Khong tim thay userId.");
+    if (!selectedPackage) return setErrorText("Vui long chon goi dich vu.");
+    if (!authToken) return setErrorText("Ban chua dang nhap hoac token da het han.");
     if (!bankName.trim() || !accountNumber.trim() || !accountHolder.trim()) {
       return setErrorText("Vui long nhap day du thong tin ngan hang.");
-    }
-    if (!authToken) {
-      return setErrorText("Ban chua dang nhap hoac token da het han.");
-    }
-    if (!userId) {
-      return setErrorText("Khong tim thay userId.");
     }
 
     setLoading(true);
     setErrorText("");
-    setFailureReason("");
 
     try {
-      const result = await submitPayment(
+      const initResult = await initiatePayment(
         {
           userId,
-          packageType,
-          bankInfo: {
-            bankName: bankName.trim(),
-            accountNumber: accountNumber.trim(),
-            accountHolder: accountHolder.trim(),
-          },
+          packageType: selectedPackage,
         },
         authToken,
       );
 
-      const backendTransactionId = result.transactionId ?? transactionId;
-      setTransactionId(backendTransactionId);
-      window.sessionStorage.setItem("payment_transaction_id", backendTransactionId);
-      setLastReferenceCode(result.transactionId ?? null);
-      setStep("success");
+      const resolvedTx = initResult.transactionId ?? `GLU-${Date.now()}`;
+      setTransactionId(resolvedTx);
+      window.sessionStorage.setItem("payment_transaction_id", resolvedTx);
+
+      const amount = PACKAGE_INFO[selectedPackage].amount;
+      const webhookResult = await sendPaymentWebhook({
+        id: generateUuid(),
+        gateway: bankName.trim(),
+        transactionDate: formatDateTime(new Date()),
+        accountNumber: accountNumber.trim(),
+        content: `GLUCARE ${userId} ${selectedPackage}`,
+        transferType: "in",
+        transferAmount: amount,
+        accumulated: 19000000 + amount,
+        referenceCode: resolvedTx,
+      });
+
+      if (webhookResult.status < 200 || webhookResult.status >= 300) {
+        throw new Error(`Webhook failed (HTTP ${webhookResult.status})`);
+      }
+
+      setStep("SUCCESS");
     } catch (error) {
-      setFailureReason(error instanceof Error ? error.message : "Thanh toan that bai.");
-      setStep("failed");
+      setErrorText(error instanceof Error ? error.message : "Thanh toan that bai.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleCancelTransaction = async () => {
-    if (!authToken) return setErrorText("Khong tim thay token dang nhap.");
-    if (!transactionId) return setErrorText(missingTransactionError);
-
-    setCanceling(true);
-    setErrorText("");
-    try {
-      await cancelPayment(authToken, transactionId);
-      window.location.href = "/";
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Huy giao dich that bai.");
-    } finally {
-      setCanceling(false);
     }
   };
 
@@ -198,12 +139,7 @@ export default function PaymentPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
             Thanh toan goi GlucoDia
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Giao dich se tu dong het han sau 5 phut neu chua thanh toan.
-          </p>
-          <p className="mt-2 inline-flex rounded-full bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">
-            Thoi gian con lai: {countdownLabel}
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">Manual Bank Entry + Mock SePay Webhook</p>
         </motion.header>
 
         {missingQueryError ? (
@@ -218,73 +154,124 @@ export default function PaymentPage() {
             </CardContent>
           </Card>
         ) : null}
-        {!missingQueryError && !transactionId ? (
-          <Card>
-            <CardContent className="pt-4">
-              <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {missingTransactionError}
-              </p>
-            </CardContent>
-          </Card>
-        ) : null}
 
         <AnimatePresence mode="wait">
-          {step === "form" ? (
+          {step === "SELECT_PACKAGE" ? (
             <motion.section
-              key="form"
+              key="select-package"
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
-              className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+              className="grid gap-4 md:grid-cols-3"
             >
-              <OrderSummaryCard
-                transactionId={transactionId}
-                packageType={packageType}
-                amount={amount}
-                countdownLabel={countdownLabel}
-                expired={expired}
-              />
-              <BankTransferForm
-                packageType={packageType}
-                amount={amount}
-                loading={loading}
-                canceling={canceling}
-                expired={expired}
-                errorText={errorText}
-                bankName={bankName}
-                accountNumber={accountNumber}
-                accountHolder={accountHolder}
-                onBankNameChange={setBankName}
-                onAccountNumberChange={setAccountNumber}
-                onAccountHolderChange={setAccountHolder}
-                onConfirm={handleConfirmPayment}
-                disableCancel={!transactionId}
-                onCancel={handleCancelTransaction}
-              />
+              {(["M", "Y", "L"] as PackageCode[]).map((code) => (
+                <Card
+                  key={code}
+                  className="rounded-2xl border-white/60 bg-white/85 shadow-xl shadow-indigo-200/20 backdrop-blur-md"
+                >
+                  <CardHeader>
+                    <CardTitle>{PACKAGE_INFO[code].label}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-2xl font-semibold text-indigo-700">
+                      {PACKAGE_INFO[code].amount.toLocaleString("vi-VN")} VND
+                    </p>
+                    <p className="text-sm text-muted-foreground">Thoi han: {PACKAGE_INFO[code].duration}</p>
+                    <Button
+                      className="w-full bg-gradient-to-r from-sky-600 to-indigo-600"
+                      onClick={() => {
+                        setSelectedPackage(code);
+                        setErrorText("");
+                        setStep("BANK_INPUT");
+                      }}
+                    >
+                      Chon goi {code}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
             </motion.section>
           ) : null}
 
-          {step === "failed" ? (
+          {step === "BANK_INPUT" ? (
             <motion.div
-              key="failed"
+              key="bank-input"
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
             >
-              <PaymentResultCard
-                type="failed"
-                reason={failureReason}
-                canceling={canceling}
-                disableCancel={!transactionId}
-                onRetry={resetToForm}
-                onCancel={handleCancelTransaction}
-              />
+              <Card className="mx-auto w-full max-w-2xl rounded-2xl border-white/60 bg-white/90 shadow-xl shadow-sky-200/30 backdrop-blur-md">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Nhap thong tin ngan hang</span>
+                    <Button variant="outline" onClick={() => setStep("SELECT_PACKAGE")}>
+                      Doi goi
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-xl border border-sky-100 bg-gradient-to-r from-sky-50 to-indigo-50 px-3 py-2 text-sm">
+                    <p className="font-medium">Goi da chon: {selectedPackage}</p>
+                    <p className="text-muted-foreground">
+                      So tien:{" "}
+                      {selectedPackage ? PACKAGE_INFO[selectedPackage].amount.toLocaleString("vi-VN") : 0} VND
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bank-name">Ten ngan hang</Label>
+                    <Input
+                      id="bank-name"
+                      value={bankName}
+                      placeholder="VD: Vietcombank"
+                      onChange={(e) => setBankName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="acc-number">So tai khoan</Label>
+                    <Input
+                      id="acc-number"
+                      value={accountNumber}
+                      placeholder="VD: 0123456789"
+                      onChange={(e) => setAccountNumber(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="acc-holder">Ten chu tai khoan</Label>
+                    <Input
+                      id="acc-holder"
+                      value={accountHolder}
+                      placeholder="VD: Nguyen Van A"
+                      onChange={(e) => setAccountHolder(e.target.value)}
+                    />
+                  </div>
+                  {errorText ? (
+                    <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                      {errorText}
+                    </p>
+                  ) : null}
+                  <Button
+                    className="w-full bg-gradient-to-r from-sky-600 to-indigo-600"
+                    size="lg"
+                    disabled={loading}
+                    onClick={handleConfirmPayment}
+                  >
+                    {loading ? (
+                      <>
+                        <Spinner className="mr-2" />
+                        Dang xu ly...
+                      </>
+                    ) : (
+                      "Xac nhan thanh toan"
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
             </motion.div>
           ) : null}
 
-          {step === "success" ? (
+          {step === "SUCCESS" ? (
             <motion.div
               key="success"
               initial={{ opacity: 0, y: 16, scale: 0.98 }}
@@ -292,13 +279,24 @@ export default function PaymentPage() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35 }}
             >
-              <PaymentResultCard
-                type="success"
-                transactionId={transactionId}
-                referenceCode={lastReferenceCode}
-                amount={amount}
-                onReturnToApp={handleReturnToApp}
-              />
+              <Card className="mx-auto w-full max-w-xl overflow-hidden rounded-2xl border-emerald-100 bg-white/90 shadow-xl shadow-emerald-200/25 backdrop-blur-md">
+                <CardHeader className="bg-gradient-to-r from-emerald-50 to-cyan-50">
+                  <CardTitle className="text-emerald-800">Thanh toan thanh cong</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 pt-4">
+                  <div className="rounded-lg bg-muted px-3 py-3 text-sm">
+                    <p className="text-xs text-muted-foreground">Transaction ID</p>
+                    <p className="font-mono text-sm">{transactionId ?? "-"}</p>
+                  </div>
+                  <Button
+                    className="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 text-white"
+                    size="lg"
+                    onClick={handleReturnToApp}
+                  >
+                    Quay tro lai App
+                  </Button>
+                </CardContent>
+              </Card>
             </motion.div>
           ) : null}
         </AnimatePresence>
