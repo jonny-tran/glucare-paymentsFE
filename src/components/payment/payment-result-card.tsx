@@ -2,13 +2,13 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
 
 type SuccessProps = {
   type: "success";
   transactionId: string | null;
   referenceCode: string | null;
   amount: number;
-  onBackToPayment: () => void;
   onReturnToApp: () => void;
 };
 
@@ -26,7 +26,7 @@ type Props = SuccessProps | FailedProps;
 export function PaymentResultCard(props: Props) {
   if (props.type === "failed") {
     return (
-      <Card className="mx-auto w-full max-w-xl overflow-hidden border-zinc-200">
+      <Card className="mx-auto w-full max-w-xl overflow-hidden rounded-2xl border-red-100 bg-white/90 shadow-xl shadow-red-200/20 backdrop-blur-md">
         <CardHeader className="bg-red-50">
           <CardTitle className="flex items-center gap-2 text-red-800">
             <span className="inline-flex size-6 items-center justify-center rounded-full bg-red-600 text-white">
@@ -58,12 +58,17 @@ export function PaymentResultCard(props: Props) {
   }
 
   return (
-    <Card className="mx-auto w-full max-w-xl overflow-hidden border-zinc-200">
-      <CardHeader className="bg-emerald-50">
+    <Card className="mx-auto w-full max-w-xl overflow-hidden rounded-2xl border-emerald-100 bg-white/90 shadow-xl shadow-emerald-200/25 backdrop-blur-md">
+      <CardHeader className="bg-gradient-to-r from-emerald-50 to-cyan-50">
         <CardTitle className="flex items-center gap-2 text-emerald-800">
-          <span className="inline-flex size-6 items-center justify-center rounded-full bg-emerald-600 text-white">
+          <motion.span
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: "spring", stiffness: 240, damping: 14 }}
+            className="inline-flex size-6 items-center justify-center rounded-full bg-emerald-600 text-white"
+          >
             ✓
-          </span>
+          </motion.span>
           Thanh toan thanh cong
         </CardTitle>
       </CardHeader>
@@ -86,11 +91,12 @@ export function PaymentResultCard(props: Props) {
         </div>
 
         <div className="space-y-2 pt-2">
-          <Button className="w-full" size="lg" onClick={props.onReturnToApp}>
-            Ve ung dung GlucoDia
-          </Button>
-          <Button className="w-full" size="sm" variant="outline" onClick={props.onBackToPayment}>
-            Quay ve trang thanh toan
+          <Button
+            className="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-lg shadow-emerald-300/30 transition-transform hover:scale-[1.01] hover:from-emerald-500 hover:to-cyan-500"
+            size="lg"
+            onClick={props.onReturnToApp}
+          >
+            Quay tro lai App
           </Button>
         </div>
       </CardContent>

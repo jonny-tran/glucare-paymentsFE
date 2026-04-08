@@ -1,22 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cancelPayment, sendPaymentWebhook, type PackageType } from "@/services/payments";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  cancelPayment,
+  sendPaymentWebhook,
+  submitPayment,
+  type PackageType,
+} from "@/services/payments";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OrderSummaryCard } from "@/components/payment/order-summary-card";
-import { PaymentMethodSelector } from "@/components/payment/payment-method-selector";
-import { QrPaymentPanel } from "@/components/payment/qr-payment-panel";
-import { CardPaymentForm } from "@/components/payment/card-payment-form";
+import { BankTransferForm } from "@/components/payment/bank-transfer-form";
 import { PaymentResultCard } from "@/components/payment/payment-result-card";
 
 const PACKAGE_AMOUNT: Record<PackageType, number> = {
-  M: 50000,
-  Y: 500000,
-  L: 2000000,
+  MONTHLY: 50000,
+  YEARLY: 450000,
+  LIFETIME: 1000000,
 };
 
-type PaymentMethod = "vietqr" | "vietqrpay" | "card";
-type Step = "method" | "qr" | "card" | "success" | "failed";
+type Step = "form" | "success" | "failed";
 
 function generateUuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -40,7 +43,9 @@ function formatDateTime(date: Date): string {
 }
 
 function parsePackage(value: string | null): PackageType | null {
-  if (value === "M" || value === "Y" || value === "L") return value;
+  if (value === "M" || value === "MONTHLY") return "MONTHLY";
+  if (value === "Y" || value === "YEARLY") return "YEARLY";
+  if (value === "L" || value === "LIFETIME") return "LIFETIME";
   return null;
 }
 
@@ -51,16 +56,13 @@ export default function PaymentPage() {
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
 
-  const [step, setStep] = useState<Step>("method");
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
-  const [qrUrl, setQrUrl] = useState("");
+  const [step, setStep] = useState<Step>("form");
   const [errorText, setErrorText] = useState("");
   const [failureReason, setFailureReason] = useState("");
 
-  const [cardName, setCardName] = useState("");
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardExpiry, setCardExpiry] = useState("");
-  const [cardCvv, setCardCvv] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountHolder, setAccountHolder] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [canceling, setCanceling] = useState(false);
@@ -114,7 +116,9 @@ export default function PaymentPage() {
     "Thiếu mã giao dịch, vui lòng khởi tạo lại thanh toán";
 
   const missingQueryError = useMemo(() => {
-    if (!userId || !packageType) return "Thieu query params: userId va package (M | Y | L).";
+    if (!userId || !packageType) {
+      return "Thieu query params: userId va package (MONTHLY | YEARLY | LIFETIME).";
+    }
     return "";
   }, [packageType, userId]);
 
@@ -131,50 +135,45 @@ export default function PaymentPage() {
   const amount = packageType ? PACKAGE_AMOUNT[packageType] : 0;
   const countdownLabel = `${`${Math.floor(secondsLeft / 60)}`.padStart(2, "0")}:${`${secondsLeft % 60}`.padStart(2, "0")}`;
 
-  const resetToMethod = () => {
-    setStep("method");
-    setSelectedMethod(null);
-    setQrUrl("");
+  const resetToForm = () => {
+    setStep("form");
     setFailureReason("");
     setErrorText("");
-  };
-
-  const fetchQr = async (pkg: PackageType) => {
-    const res = await fetch(`/api/payments/qr?package=${pkg}`);
-    const data = (await res.json()) as { success?: boolean; url?: string; message?: string };
-    if (!res.ok || !data.url) throw new Error(data.message ?? "Khong the tai QR.");
-    setQrUrl(data.url);
-  };
-
-  const handleSelectQr = async (method: "vietqr" | "vietqrpay") => {
-    if (!packageType) return;
-    try {
-      setSelectedMethod(method);
-      setStep("qr");
-      setErrorText("");
-      await fetchQr(packageType);
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Khong the tai QR.");
-    }
   };
 
   const handleConfirmPayment = async () => {
     if (!transactionId) return setErrorText(missingTransactionError);
     if (!packageType || !resolvedPhone) return setErrorText("Khong du thong tin thanh toan.");
     if (expired) return setErrorText("Don da het han.");
+    if (!bankName.trim() || !accountNumber.trim() || !accountHolder.trim()) {
+      return setErrorText("Vui long nhap day du thong tin ngan hang.");
+    }
 
     setLoading(true);
     setErrorText("");
     setFailureReason("");
 
     try {
+      if (authToken && userId) {
+        await submitPayment(
+          {
+            userId,
+            packageType,
+            bankName: bankName.trim(),
+            accountNumber: accountNumber.trim(),
+            accountHolder: accountHolder.trim(),
+          },
+          authToken,
+        );
+      }
+
       const referenceCode = `MBVCB.${Date.now()}`;
       const result = await sendPaymentWebhook({
         id: generateUuid(),
-        gateway: "Vietcombank",
+        gateway: bankName.trim(),
         transactionDate: formatDateTime(new Date()),
-        accountNumber: "0123456789",
-        content: `GLUCARE ${resolvedPhone} ${packageType}`,
+        accountNumber: accountNumber.trim(),
+        content: `GLUCARE ${resolvedPhone} ${packageType} ${accountHolder.trim()}`,
         transferType: "in",
         transferAmount: amount,
         accumulated: 19000000 + amount,
@@ -213,21 +212,30 @@ export default function PaymentPage() {
   };
 
   const handleReturnToApp = () => {
-    console.log("Return to mobile app clicked");
+    console.log("Navigating back to app...");
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-zinc-50 to-white px-4 py-6 sm:py-10">
+    <main className="relative min-h-screen overflow-hidden bg-gradient-to-br from-indigo-50 via-sky-50 to-cyan-100 px-4 py-6 sm:py-10">
+      <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-purple-300/25 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-24 -right-20 h-80 w-80 rounded-full bg-cyan-300/30 blur-3xl" />
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-6">
-        <header className="rounded-xl border border-zinc-200 bg-white px-4 py-4 shadow-sm">
+        <motion.header
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+          className="relative rounded-2xl border border-white/60 bg-white/80 px-4 py-4 shadow-xl shadow-sky-200/30 backdrop-blur-md"
+        >
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
             Thanh toan goi GlucoDia
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Giao dich se tu dong het han sau 5 phut neu chua thanh toan.
           </p>
-          <p className="mt-2 text-sm font-medium text-amber-600">Thoi gian con lai: {countdownLabel}</p>
-        </header>
+          <p className="mt-2 inline-flex rounded-full bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">
+            Thoi gian con lai: {countdownLabel}
+          </p>
+        </motion.header>
 
         {missingQueryError ? (
           <Card>
@@ -251,110 +259,80 @@ export default function PaymentPage() {
           </Card>
         ) : null}
 
-        {step === "method" ? (
-          <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-            <OrderSummaryCard
-              transactionId={transactionId}
-              packageType={packageType}
-              amount={amount}
-              countdownLabel={countdownLabel}
-              expired={expired}
-            />
-            <PaymentMethodSelector
-              disabled={Boolean(missingQueryError) || expired}
-              errorText={errorText}
-              onSelectVietQr={() => void handleSelectQr("vietqr")}
-              onSelectVietQrPay={() => void handleSelectQr("vietqrpay")}
-              onSelectCard={() => {
-                setSelectedMethod("card");
-                setStep("card");
-                setErrorText("");
-              }}
-            />
-          </section>
-        ) : null}
+        <AnimatePresence mode="wait">
+          {step === "form" ? (
+            <motion.section
+              key="form"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+            >
+              <OrderSummaryCard
+                transactionId={transactionId}
+                packageType={packageType}
+                amount={amount}
+                countdownLabel={countdownLabel}
+                expired={expired}
+              />
+              <BankTransferForm
+                packageType={packageType}
+                amount={amount}
+                loading={loading}
+                canceling={canceling}
+                expired={expired}
+                errorText={errorText}
+                bankName={bankName}
+                accountNumber={accountNumber}
+                accountHolder={accountHolder}
+                onBankNameChange={setBankName}
+                onAccountNumberChange={setAccountNumber}
+                onAccountHolderChange={setAccountHolder}
+                onConfirm={handleConfirmPayment}
+                disableCancel={!transactionId}
+                onCancel={handleCancelTransaction}
+              />
+            </motion.section>
+          ) : null}
 
-        {step === "qr" ? (
-          <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-            <OrderSummaryCard
-              transactionId={transactionId}
-              packageType={packageType}
-              amount={amount}
-              countdownLabel={countdownLabel}
-              expired={expired}
-            />
-            <QrPaymentPanel
-              qrUrl={qrUrl}
-              loading={loading}
-              canceling={canceling}
-              expired={expired}
-              errorText={errorText}
-              methodLabel={
-                selectedMethod === "vietqrpay"
-                  ? "Su dung app ngan hang/vi ho tro VietQR Pay de quet ma."
-                  : "Su dung app ngan hang/vi ho tro VietQR de quet ma."
-              }
-              onBack={resetToMethod}
-              onConfirm={handleConfirmPayment}
-              disableCancel={!transactionId}
-              onCancel={handleCancelTransaction}
-            />
-          </section>
-        ) : null}
+          {step === "failed" ? (
+            <motion.div
+              key="failed"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+            >
+              <PaymentResultCard
+                type="failed"
+                reason={failureReason}
+                canceling={canceling}
+                disableCancel={!transactionId}
+                onRetry={resetToForm}
+                onCancel={handleCancelTransaction}
+              />
+            </motion.div>
+          ) : null}
 
-        {step === "card" ? (
-          <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-            <OrderSummaryCard
-              transactionId={transactionId}
-              packageType={packageType}
-              amount={amount}
-              countdownLabel={countdownLabel}
-              expired={expired}
-            />
-            <CardPaymentForm
-              packageType={packageType}
-              amount={amount}
-              loading={loading}
-              canceling={canceling}
-              expired={expired}
-              errorText={errorText}
-              cardName={cardName}
-              cardNumber={cardNumber}
-              cardExpiry={cardExpiry}
-              cardCvv={cardCvv}
-              onCardNameChange={setCardName}
-              onCardNumberChange={setCardNumber}
-              onCardExpiryChange={setCardExpiry}
-              onCardCvvChange={setCardCvv}
-              onConfirm={handleConfirmPayment}
-              disableCancel={!transactionId}
-              onCancel={handleCancelTransaction}
-              onBack={resetToMethod}
-            />
-          </section>
-        ) : null}
-
-        {step === "failed" ? (
-          <PaymentResultCard
-            type="failed"
-            reason={failureReason}
-            canceling={canceling}
-            disableCancel={!transactionId}
-            onRetry={() => setStep(selectedMethod === "card" ? "card" : "qr")}
-            onCancel={handleCancelTransaction}
-          />
-        ) : null}
-
-        {step === "success" ? (
-          <PaymentResultCard
-            type="success"
-            transactionId={transactionId}
-            referenceCode={lastReferenceCode}
-            amount={amount}
-            onReturnToApp={handleReturnToApp}
-            onBackToPayment={resetToMethod}
-          />
-        ) : null}
+          {step === "success" ? (
+            <motion.div
+              key="success"
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35 }}
+            >
+              <PaymentResultCard
+                type="success"
+                transactionId={transactionId}
+                referenceCode={lastReferenceCode}
+                amount={amount}
+                onReturnToApp={handleReturnToApp}
+              />
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       </div>
     </main>
   );

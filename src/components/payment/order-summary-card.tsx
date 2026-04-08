@@ -12,6 +12,13 @@ type Props = {
   expired: boolean;
 };
 
+function packageLabel(packageType: PackageType | null): string {
+  if (packageType === "MONTHLY") return "Goi Thang";
+  if (packageType === "YEARLY") return "Goi Nam";
+  if (packageType === "LIFETIME") return "Goi Tron doi";
+  return "Khong xac dinh";
+}
+
 export function OrderSummaryCard({
   transactionId,
   packageType,
@@ -20,7 +27,7 @@ export function OrderSummaryCard({
   expired,
 }: Props) {
   return (
-    <Card className="border-zinc-200">
+    <Card className="rounded-2xl border-white/60 bg-white/85 shadow-xl shadow-indigo-200/20 backdrop-blur-md">
       <CardHeader>
         <CardTitle>Thong tin giao dich</CardTitle>
       </CardHeader>
@@ -33,14 +40,12 @@ export function OrderSummaryCard({
         </div>
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Goi dich vu</p>
-          <p className="text-sm font-medium text-foreground">
-            {packageType ? `Goi ${packageType}` : "Khong xac dinh"}
-          </p>
+          <p className="text-sm font-medium text-foreground">{packageLabel(packageType)}</p>
         </div>
         <Separator />
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">So tien</p>
-          <p className="text-2xl font-semibold text-blue-700">
+          <p className="bg-gradient-to-r from-sky-600 to-indigo-600 bg-clip-text text-2xl font-semibold text-transparent">
             {amount.toLocaleString("vi-VN")} VND
           </p>
         </div>

@@ -1,12 +1,20 @@
-export type PackageType = "M" | "Y" | "L";
+export type PackageType = "MONTHLY" | "YEARLY" | "LIFETIME";
 
-export type InitiatePaymentRequest = {
+export type SubmitPaymentRequest = {
   userId: string;
   packageType: PackageType;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
 };
 
-export type InitiatePaymentResponse = {
-  paymentUrl: string;
+export type SubmitPaymentResponse = {
+  success: boolean;
+  transactionRef?: string;
+  expectedAmount?: number;
+  packageType?: PackageType;
+  status?: "PENDING" | "SUCCESS" | "FAILED";
+  message?: string;
 };
 
 export type PaymentWebhookPayload = {
@@ -70,27 +78,27 @@ function bearerHeaders(token: string): HeadersInit {
   };
 }
 
-export async function initiatePayment(
-  body: InitiatePaymentRequest,
+export async function submitPayment(
+  body: SubmitPaymentRequest,
   token: string,
-): Promise<InitiatePaymentResponse> {
-  const response = await fetch(`${getBackendUrl()}/v1/payments/initiate`, {
+): Promise<SubmitPaymentResponse> {
+  const response = await fetch("/api/payments/submit", {
     method: "POST",
     headers: bearerHeaders(token),
     body: JSON.stringify(body),
   });
 
   const data = (await parseJsonResponse(response)) as
-    | InitiatePaymentResponse
-    | { data?: InitiatePaymentResponse; message?: string };
+    | SubmitPaymentResponse
+    | { data?: SubmitPaymentResponse; message?: string };
 
-  const normalized = "paymentUrl" in data ? data : data?.data;
+  const normalized = "success" in data ? data : data?.data;
 
-  if (!response.ok || !normalized?.paymentUrl) {
+  if (!response.ok || !normalized?.success) {
     const message =
       typeof (data as { message?: string })?.message === "string"
         ? (data as { message?: string }).message!
-        : `Initiate failed with status ${response.status}`;
+        : `Submit payment failed with status ${response.status}`;
     throw new ApiError(message, response.status, data);
   }
 
