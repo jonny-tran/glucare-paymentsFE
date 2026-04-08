@@ -24,6 +24,7 @@ function parsePackageCode(value: string | null): PackageCode | null {
 
 export default function PaymentPage() {
   const [userId, setUserId] = useState<string | null>(null);
+  const [phone, setPhone] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<PackageCode | null>(null);
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("BANK_INPUT");
@@ -38,6 +39,7 @@ export default function PaymentPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setUserId(params.get("userId"));
+    setPhone(params.get("phone"));
     setSelectedPackage(parsePackageCode(params.get("package")));
     setTransactionId(params.get("transactionId"));
   }, []);
@@ -49,6 +51,17 @@ export default function PaymentPage() {
     return "";
   }, [selectedPackage, transactionId, userId]);
 
+  const resolvedPhone = useMemo(() => {
+    if (phone && /^[0-9]{9,11}$/.test(phone)) return phone;
+    if (!userId) return null;
+    const byUserId: Record<string, string> = {
+      "4d3c9bea-6683-467c-ae28-85061d86ef64": "0984444444",
+      "50b4860e-7b1e-4006-9448-f823a623ad6c": "0985555555",
+      "945add22-6c73-4902-ae52-d1b1b884c067": "0983333333",
+    };
+    return byUserId[userId] ?? null;
+  }, [phone, userId]);
+
   const handleConfirmPayment = async () => {
     if (!userId) return setErrorText("Khong tim thay userId.");
     if (!selectedPackage || !transactionId) return setErrorText("Thong tin thanh toan khong hop le.");
@@ -57,6 +70,9 @@ export default function PaymentPage() {
     }
     if (!webhookApiKey) {
       return setErrorText("Missing NEXT_PUBLIC_SEPAY_WEBHOOK_API_KEY de gui x-api-key.");
+    }
+    if (!resolvedPhone) {
+      return setErrorText("Khong tim thay so dien thoai hop le de tao content webhook.");
     }
 
     setLoading(true);
@@ -69,7 +85,7 @@ export default function PaymentPage() {
         gateway: "Vietcombank",
         transactionDate: "2026-04-06 10:00:00",
         accountNumber: "0123456789",
-        content: `GLUCARE ${userId} ${selectedPackage}`,
+        content: `GLUCARE ${resolvedPhone} ${selectedPackage}`,
         transferType: "in",
         transferAmount: amount,
         accumulated: 0,
@@ -141,6 +157,9 @@ export default function PaymentPage() {
                     <p className="text-muted-foreground">
                       So tien:{" "}
                       {selectedPackage ? PACKAGE_INFO[selectedPackage].amount.toLocaleString("vi-VN") : 0} VND
+                    </p>
+                    <p className="text-muted-foreground">
+                      SDT trong content: {resolvedPhone ?? "(khong tim thay)"}
                     </p>
                   </div>
                   <div className="space-y-1.5">
