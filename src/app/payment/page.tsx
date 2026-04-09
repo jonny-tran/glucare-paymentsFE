@@ -22,6 +22,18 @@ function parsePackageCode(value: string | null): PackageCode | null {
   return null;
 }
 
+function normalizePhone(value: string | null): string | null {
+  if (!value) return null;
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return null;
+
+  // Convert 84xxxxxxxxx to 0xxxxxxxxx for local parsing
+  if (digits.startsWith("84") && digits.length >= 10) {
+    return `0${digits.slice(2)}`;
+  }
+  return digits;
+}
+
 export default function PaymentPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
@@ -39,7 +51,13 @@ export default function PaymentPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setUserId(params.get("userId"));
-    setPhone(params.get("phone"));
+    const queryPhone = normalizePhone(params.get("phone"));
+    const sessionPhone = normalizePhone(window.sessionStorage.getItem("payment_phone"));
+    const resolvedPhone = queryPhone ?? sessionPhone;
+    setPhone(resolvedPhone);
+    if (resolvedPhone) {
+      window.sessionStorage.setItem("payment_phone", resolvedPhone);
+    }
     setSelectedPackage(parsePackageCode(params.get("package")));
     setTransactionId(params.get("transactionId"));
   }, []);
